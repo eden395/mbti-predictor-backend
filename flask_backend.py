@@ -8,7 +8,7 @@ CORS(app)  # Enable CORS for React frontend
 
 # Load your trained model and preprocessing objects
 try:
-    lr_model = joblib.load('lr_mbti_model.joblib')
+    rf_model = joblib.load('rf_mbti_model.joblib')   # UPDATED
     scaler = joblib.load('scaler.joblib')
     le_gender = joblib.load('le_gender.joblib')
     le_edu = joblib.load('le_edu.joblib')
@@ -32,7 +32,7 @@ def predict():
     try:
         data = request.json
         
-        # Extract features from request
+        # Extract features
         age = float(data['age'])
         gender = data['gender']
         education = data['education']
@@ -57,20 +57,20 @@ def predict():
         # Scale features
         features_scaled = scaler.transform(features)
         
-        # Make prediction
-        pred_class = lr_model.predict(features_scaled)[0]
-        pred_proba = lr_model.predict_proba(features_scaled)[0]
+        # Make prediction using RANDOM FOREST (UPDATED)
+        pred_class = rf_model.predict(features_scaled)[0]
+        pred_proba = rf_model.predict_proba(features_scaled)[0]
         
         # Get MBTI type
         mbti_type = le_personality.inverse_transform([pred_class])[0]
         
-        # Get all probabilities
+        # Collect probabilities
         probabilities = {}
         for idx, prob in enumerate(pred_proba):
             personality = le_personality.inverse_transform([idx])[0]
             probabilities[personality] = float(prob)
         
-        # Sort by probability and get top 5
+        # Get top 5
         top_5 = sorted(probabilities.items(), key=lambda x: x[1], reverse=True)[:5]
         
         return jsonify({
