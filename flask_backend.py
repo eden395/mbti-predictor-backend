@@ -16,7 +16,7 @@ try:
     le_personality = joblib.load('le_personality.joblib')
     print("✅ Models loaded successfully!")
 except Exception as e:
-    print(f"❌ Error loading models: {e}")
+    print(f"Error loading models: {e}")
 
 @app.route('/')
 def home():
