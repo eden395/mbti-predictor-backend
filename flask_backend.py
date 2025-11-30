@@ -4,19 +4,29 @@ import joblib
 import numpy as np
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for React frontend
+
+# FIXED: Proper CORS configuration for production
+CORS(app, resources={
+    r"/*": {
+        "origins": ["*"],  # In production, replace with your actual frontend URL
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 
 # Load your trained model and preprocessing objects
 try:
-    lr_model = joblib.load('lr_mbti_model.joblib')  # FIXED: Load Logistic Regression
+    lr_model = joblib.load('lr_mbti_model.joblib')
     scaler = joblib.load('scaler.joblib')
     le_gender = joblib.load('le_gender.joblib')
     le_edu = joblib.load('le_edu.joblib')
     le_interest = joblib.load('le_interest.joblib')
     le_personality = joblib.load('le_personality.joblib')
-    print("✅ Models loaded successfully!")
+    print("Models loaded successfully!")
 except Exception as e:
     print(f"Error loading models: {e}")
+    # Set to None so we can handle gracefully
+    lr_model = None
 
 # MBTI Descriptions
 mbti_descriptions = {
@@ -42,7 +52,9 @@ mbti_descriptions = {
 def home():
     return jsonify({
         "message": "MBTI Predictor API is running!",
+        "status": "online",
         "model": "Logistic Regression",
+        "model_loaded": lr_model is not None,
         "endpoints": {
             "/predict": "POST - Make personality predictions",
             "/model-info": "GET - Get model information"
@@ -51,6 +63,12 @@ def home():
 
 @app.route('/model-info')
 def model_info():
+    if lr_model is None:
+        return jsonify({
+            "success": False,
+            "error": "Models not loaded. Please check server logs."
+        }), 500
+    
     return jsonify({
         "model_type": "Logistic Regression",
         "test_accuracy": "76.88%",
@@ -65,20 +83,62 @@ def model_info():
         "personality_types": le_personality.classes_.tolist()
     })
 
-@app.route('/predict', methods=['POST'])
+@app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    # Check if models are loaded
+    if lr_model is None:
+        return jsonify({
+            "success": False,
+            "error": "Models not loaded on server. Please contact administrator."
+        }), 500
+    
     try:
         data = request.json
         
-        # Extract features
-        age = float(data['age'])
+        # Validate that we received JSON data
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No JSON data received"
+            }), 400
+        
+        # Extract features with validation
+        try:
+            age = float(data['age'])
+        except (KeyError, ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "error": "Invalid or missing 'age' field"
+            }), 400
+        
+        # Validate required fields
+        required_fields = ['gender', 'education', 'interest', 'introversion', 
+                          'sensing', 'thinking', 'judging']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    "success": False,
+                    "error": f"Missing required field: {field}"
+                }), 400
+        
         gender = data['gender']
-        education = data['education']  # Can be string or int
+        education = data['education']
         interest = data['interest']
-        introversion = float(data['introversion'])
-        sensing = float(data['sensing'])
-        thinking = float(data['thinking'])
-        judging = float(data['judging'])
+        
+        try:
+            introversion = float(data['introversion'])
+            sensing = float(data['sensing'])
+            thinking = float(data['thinking'])
+            judging = float(data['judging'])
+        except (ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "error": "Personality scores must be numeric values"
+            }), 400
         
         # Validate score ranges
         for score_name, score_value in [
@@ -90,6 +150,13 @@ def predict():
                     "success": False,
                     "error": f"{score_name} score must be between 0 and 10"
                 }), 400
+        
+        # Validate age range
+        if not (10 <= age <= 100):
+            return jsonify({
+                "success": False,
+                "error": "Age must be between 10 and 100"
+            }), 400
         
         # Encode categorical features
         try:
@@ -106,10 +173,10 @@ def predict():
                 education_enc = le_edu.transform([education])[0]
             else:
                 education_enc = int(education)
-        except ValueError:
+        except (ValueError, TypeError):
             return jsonify({
                 "success": False,
-                "error": f"Invalid education. Must be one of: {le_edu.classes_.tolist()}"
+                "error": f"Invalid education. Must be one of: {le_edu.classes_.tolist()} or 0/1"
             }), 400
         
         try:
@@ -155,7 +222,8 @@ def predict():
             "description": description,
             "confidence": float(pred_proba[pred_class]),
             "top_5_probabilities": dict(top_5),
-            "all_probabilities": probabilities
+            "all_probabilities": probabilities,
+            "probabilities": probabilities  # Also include for backwards compatibility
         })
         
     except KeyError as e:
@@ -164,10 +232,23 @@ def predict():
             "error": f"Missing required field: {str(e)}"
         }), 400
     except Exception as e:
+        # Log the full error for debugging
+        print(f"Prediction error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
         return jsonify({
             "success": False,
-            "error": str(e)
-        }), 400
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+# Health check endpoint
+@app.route('/health')
+def health():
+    return jsonify({
+        "status": "healthy",
+        "models_loaded": lr_model is not None
+    })
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
