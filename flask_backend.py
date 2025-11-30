@@ -35,7 +35,7 @@ def predict():
         # Extract features
         age = float(data['age'])
         gender = data['gender']
-        education = data['education']
+        education = int(data['education'])  # CHANGED: Now expecting 0 or 1 directly
         interest = data['interest']
         introversion = float(data['introversion'])
         sensing = float(data['sensing'])
@@ -44,12 +44,12 @@ def predict():
         
         # Encode categorical features
         gender_enc = le_gender.transform([gender])[0]
-        education_enc = le_edu.transform([education])[0]
+        # education is already encoded as 0 or 1
         interest_enc = le_interest.transform([interest])[0]
         
         # Create feature array
         features = np.array([[
-            age, gender_enc, education_enc,
+            age, gender_enc, education,  # CHANGED: Use education directly
             introversion, sensing, thinking, judging,
             interest_enc
         ]])
@@ -57,7 +57,7 @@ def predict():
         # Scale features
         features_scaled = scaler.transform(features)
         
-        # Make prediction using RANDOM FOREST (UPDATED)
+        # Make prediction using RANDOM FOREST
         pred_class = rf_model.predict(features_scaled)[0]
         pred_proba = rf_model.predict_proba(features_scaled)[0]
         
